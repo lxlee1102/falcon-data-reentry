@@ -1,0 +1,22 @@
+{
+    "debug": true,
+    "workers": 2,
+    "batch": 200,
+    "from": {
+        "begin_time": "2020-05-27T00:00:00Z",
+        "end_time": "2020-06-03T00:00:00Z",
+        "connect_timeout": 5000,
+        "request_timeout": 60000,
+        "plus_api": "http://falcon-api:8080",
+        "plus_api_token": "default-token-used-in-server-side"
+    },
+    "to": {
+        "connect_timeout": 5000,
+        "request_timeout": 60000,
+        "push_api": "http://falcon-transfer:6060/api/push"
+    },
+    "whitelist" : {
+        "enabled": false,
+        "metric_prefix": ["mcs.", "cpu", "disk", "net", "mem"]
+    }
+}

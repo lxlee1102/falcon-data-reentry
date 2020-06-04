@@ -1,0 +1,6 @@
+*.tar
+*.tar.gz
+var/
+falcon-data-reentry
+cfg.json
+gitversion
