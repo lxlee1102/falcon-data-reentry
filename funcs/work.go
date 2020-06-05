@@ -408,7 +408,7 @@ func WorkRun() {
 		log.Infoln("WhiteList is enabled.")
 	}
 
-	log.Infoln("reentry data time(UTC): %s - %s", cfg.From.BeginTime, cfg.From.EndTime)
+	log.Infof("reentry data time(UTC): %s - %s", cfg.From.BeginTime, cfg.From.EndTime)
 
 	err, eps := getEndpoints()
 	if err != nil {
