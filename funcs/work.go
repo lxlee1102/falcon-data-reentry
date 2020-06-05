@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/lxlee1102/falcon-data-reentry/g"
+	"github.com/open-falcon/falcon-plus/common/model"
 	log "github.com/sirupsen/logrus"
 	"github.com/toolkits/net/httplib"
 )
@@ -31,16 +32,6 @@ import (
 var (
 	COUTER_PAGE_MAX = 100000
 )
-
-type MetricValue struct {
-	Endpoint  string      `json:"endpoint"`
-	Metric    string      `json:"metric"`
-	Value     interface{} `json:"value"`
-	Step      int64       `json:"step"`
-	Type      string      `json:"counterType"`
-	Tags      string      `json:"tags"`
-	Timestamp int64       `json:"timestamp"`
-}
 
 type GraphHistoryReq struct {
 	Step      int      `json:"step"`
@@ -62,6 +53,13 @@ type GraphHistoryResp struct {
 	Dstype   string           `json:"dstype"`
 	Step     int              `json:"step"`
 	Values   []*historyValues `json:"Values"`
+}
+
+type CounterResp struct {
+	Counter    string `json:"counter"`
+	EndpointId int64  `json:"endpoint_id"`
+	Step       int    `json:"step"`
+	Tyep       string `json:"type"`
 }
 
 func CurlPlus(uri, method, token_name, token_sig string, headers, params map[string]string) (req *httplib.BeegoHttpRequest, err error) {
@@ -104,6 +102,19 @@ type EndpointInfo struct {
 	Id       int64  `json:"id"`
 }
 
+func IsEndpointInWhiteList(ep string) bool {
+	cfg := g.Config()
+	for _, v := range cfg.WhiteList.EndpointPrefix {
+		if v == ".+" {
+			return true
+		}
+		if strings.HasPrefix(ep, v) {
+			return true
+		}
+	}
+	return false
+}
+
 func getEndpoints() (err error, L []*EndpointInfo) {
 	cfg := g.Config()
 	uri := fmt.Sprintf("%s/api/v1/graph/endpoint", cfg.From.PlusApi)
@@ -125,12 +136,26 @@ func getEndpoints() (err error, L []*EndpointInfo) {
 		return
 	}
 
+	if cfg.WhiteList.Enabled {
+		L_t := []*EndpointInfo{}
+		for _, v := range L {
+			if IsEndpointInWhiteList(v.Endpoint) {
+				L_t = append(L_t, v)
+			}
+		}
+		L = L[:0]
+		L = append(L, L_t...)
+	}
+
 	return
 }
 
 func IsCounterInWhiteList(counter string) bool {
 	cfg := g.Config()
 	for _, v := range cfg.WhiteList.MetricsPrefix {
+		if v == ".+" {
+			return true
+		}
 		if strings.HasPrefix(counter, v) {
 			return true
 		}
@@ -138,7 +163,7 @@ func IsCounterInWhiteList(counter string) bool {
 	return false
 }
 
-func getEndpointCounters(ep *EndpointInfo, page int) (resp []string, err error) {
+func getEndpointCounters(ep *EndpointInfo, page int) (resp []*CounterResp, err error) {
 	cfg := g.Config()
 	uri := fmt.Sprintf("%s/api/v1/graph/endpoint_counter", cfg.From.PlusApi)
 
@@ -206,64 +231,26 @@ func getGrouphHistory(hostnames []string, counter []string, step int, startTime,
 	return nil, L
 }
 
-type transferResponseData struct {
-	Message string `json:"message"`
-	Total   int    `json:"Total"`
-	Invalid int    `json:"Invalid"`
-	Latency int64  `json:"Latency"`
-}
-type transferResponse struct {
-	Msg  string                `json:"msg"`
-	Data *transferResponseData `json:"data"`
-}
+func send2transfer(metrics []*model.MetricValue) (succ, fail, invalid, latency uint64) {
+	succ = 0
+	fail = 0
+	var resp model.TransferResponse
 
-func sendCounterDataToTransfer(mvs []*MetricValue) (err error) {
-	cfg := g.Config()
+	g.SendMetrics(metrics, &resp)
 
-	if len(mvs) <= 0 {
-		return nil
-	}
-	ep := mvs[0].Endpoint
-	metric := mvs[0].Metric
-	tag := mvs[0].Tags
-
-	var req *httplib.BeegoHttpRequest
-	headers := map[string]string{"Content-type": "application/json"}
-	req, err = CurlPlus(cfg.To.PushApi, "POST", "falcon-data-reentry", cfg.From.PlusApiToken,
-		headers, map[string]string{})
-	if err != nil {
-		return
+	if resp.Message == "ok" {
+		succ = uint64(resp.Total)
+	} else {
+		fail = uint64(resp.Total)
 	}
 
-	req.SetTimeout(time.Duration(cfg.To.ConnTimeout)*time.Millisecond,
-		time.Duration(cfg.To.RequTimeout)*time.Millisecond)
-
-	b, err := json.Marshal(mvs)
-	if err != nil {
-		log.Errorf("json.Marshal error: %v, endpoint:%s metric:%s tag:%s",
-			err, ep, metric, tag)
-		return
-	}
-
-	req.Body(b)
-
-	resp := transferResponse{}
-	err = req.ToJson(&resp)
-	if err != nil {
-		log.Errorf("getTrasferResponse ToJson error, err %v, endpoint:%s metric:%s tag:%s",
-			err, ep, metric, tag)
-		return
-	}
-
-	if resp.Msg != "success" {
-		log.Errorf("sent2transfer return error %v,  endpoint:%s metric:%s tag:%s",
-			resp, ep, metric, tag)
-	}
+	invalid = uint64(resp.Invalid)
+	latency = uint64(resp.Latency)
 
 	return
 }
 
-func ProcessReentryCounterData(ep *EndpointInfo, counter string) (err error) {
+func ProcessReentryCounterData(ep *EndpointInfo, counter *CounterResp) (err error) {
 	cfg := g.Config()
 	batch := cfg.Batch
 	step := 60
@@ -271,17 +258,22 @@ func ProcessReentryCounterData(ep *EndpointInfo, counter string) (err error) {
 	endtm, _ := time.Parse(time.RFC3339, cfg.From.EndTime)
 
 	hostnames := []string{ep.Endpoint}
-	counters := []string{counter}
-
+	counters := []string{counter.Counter}
 	err, data := getGrouphHistory(hostnames, counters, step, begintm.Unix(), endtm.Unix())
 	if err != nil {
-		log.Errorf("failed to get counter data: %s %s err:%v",
-			ep.Endpoint, counter, err)
+		log.Errorf("process-counter: [%s] %s, err:%v", ep.Endpoint, counter.Counter, err)
 		return
 	}
 
+	var succ uint64 = 0
+	var fail uint64 = 0
+	var invalid uint64 = 0
+	var latency uint64 = 0
+	var total uint64 = 0
+
 	for _, cv := range data {
-		mvs := []*MetricValue{}
+		total += uint64(len(cv.Values))
+		mvs := []*model.MetricValue{}
 		var metric, tags string
 		ss := strings.Split(cv.Counter, "/")
 		if len(ss) >= 2 {
@@ -294,7 +286,7 @@ func ProcessReentryCounterData(ep *EndpointInfo, counter string) (err error) {
 
 		for _, vv := range cv.Values {
 			if !math.IsNaN(float64(vv.Value)) {
-				m := MetricValue{
+				m := model.MetricValue{
 					Endpoint:  cv.Endpoint,
 					Metric:    metric,
 					Value:     vv.Value,
@@ -306,22 +298,31 @@ func ProcessReentryCounterData(ep *EndpointInfo, counter string) (err error) {
 				mvs = append(mvs, &m)
 
 				if len(mvs) >= batch {
-					err = sendCounterDataToTransfer(mvs)
-					if err != nil {
-						log.Errorf("send2transfer error: %s %s", ep.Endpoint, cv.Counter)
-					}
+					time.Sleep(time.Duration(cfg.Interval) * time.Millisecond)
+					s, f, iv, lat := send2transfer(mvs)
+					succ += s
+					fail += f
+					invalid += iv
+					latency += lat
 					mvs = mvs[:0]
 				}
+			} else {
+				invalid++
 			}
 		}
 		if len(mvs) > 0 {
-			err = sendCounterDataToTransfer(mvs)
-			if err != nil {
-				log.Errorf("send2transfer error: %s %s", ep.Endpoint, cv.Counter)
-			}
+			time.Sleep(time.Duration(cfg.Interval) * time.Millisecond)
+			s, f, iv, lat := send2transfer(mvs)
+			succ += s
+			fail += f
+			invalid += iv
+			latency += lat
 			mvs = mvs[:0]
 		}
 	}
+
+	log.Debugf("process-counter: [%s] %s , points total: %v succ: %v fail: %v invalid: %v latency: %v",
+		ep.Endpoint, counter.Counter, total, succ, fail, invalid, latency)
 
 	return
 }
@@ -333,20 +334,20 @@ func ProcessEndpoint(ep *EndpointInfo) (total, succ, fail int, err error) {
 	fail = 0
 
 	// get counters
-	log.Infof("process endpoint: %s id: %v", ep.Endpoint, ep.Id)
 	pagenum := COUTER_PAGE_MAX
-	for p := 1; pagenum < COUTER_PAGE_MAX; p++ {
+	for p := 1; pagenum == COUTER_PAGE_MAX; p++ {
 		counters, errs := getEndpointCounters(ep, p)
 		if errs != nil {
-			log.Errorf("get counters failed, endpoint:%s id:%v , err%v",
+			log.Errorf("load-counters [%s] id: %v err:%v",
 				ep.Endpoint, ep.Id, errs)
 			return total, succ, fail, errs
 		}
+		pagenum = len(counters)
 
 		if cfg.WhiteList.Enabled {
-			tCounters := []string{}
+			tCounters := []*CounterResp{}
 			for _, v := range counters {
-				if IsCounterInWhiteList(v) {
+				if IsCounterInWhiteList(v.Counter) {
 					tCounters = append(tCounters, v)
 				}
 			}
@@ -354,8 +355,9 @@ func ProcessEndpoint(ep *EndpointInfo) (total, succ, fail int, err error) {
 			counters = append(counters, tCounters...)
 		}
 
-		pagenum = len(counters)
-		total = total + pagenum
+		total = total + len(counters)
+		log.Debugf("load-counters [%s] page: %d number: %d ",
+			ep.Endpoint, p, total)
 
 		// reenter each counters data
 		for _, v := range counters {
@@ -372,17 +374,17 @@ func ProcessEndpoint(ep *EndpointInfo) (total, succ, fail int, err error) {
 }
 
 func ReentryWorker(L []*EndpointInfo, wkId int) {
-	log.Infof("[worker:%v] running, endpoints: %v", wkId, len(L))
+	b, _ := json.Marshal(L)
+	log.Infof("[worker:%v] running, assign endpoints: %v, %v", wkId, len(L), string(b))
 
 	for i, v := range L {
-		total, succ, fail, err := ProcessEndpoint(v)
-		if err != nil {
-			log.Errorf("[worker:%v] process endpoint[%v]: %s id: %v total: %v succ: %v fail: %v, err: %v",
-				wkId, i, v.Endpoint, v.Id, total, succ, fail, err)
-		} else {
-			log.Infof("[worker:%v] process endpoint[%v]: %s id: %v total: %v succ: %v fail: %v ",
-				wkId, i, v.Endpoint, v.Id, total, succ, fail)
-		}
+		log.Debugf("[worker:%v] process endpoint[%v]: %s id: %v",
+			wkId, i, v.Endpoint, v.Id)
+
+		total, succ, fail, _ := ProcessEndpoint(v)
+
+		log.Infof("[worker:%v] process endpoint[%v]: %s id: %v total: %v succ: %v fail: %v ",
+			wkId, i, v.Endpoint, v.Id, total, succ, fail)
 	}
 
 	log.Infof("[worker:%v] exit.", wkId)
@@ -402,15 +404,20 @@ func WorkRun() {
 			cfg.From.BeginTime, err)
 		return
 	}
+	if cfg.WhiteList.Enabled {
+		log.Infoln("WhiteList is enabled.")
+	}
 
-	log.Infoln("load all endpoints now...")
+	log.Infoln("reentry data time(UTC): %s - %s", cfg.From.BeginTime, cfg.From.EndTime)
+
 	err, eps := getEndpoints()
 	if err != nil {
 		log.Errorf("load endpoints error, %v", err)
 		return
 	}
 	epNum := len(eps)
-	log.Infoln("load endpoints: %v \n %v", epNum, eps)
+	b, _ := json.Marshal(eps)
+	log.Infof("load endpoints: %v, %v", epNum, string(b))
 
 	if cfg.Workers <= 1 {
 		go ReentryWorker(eps, 0)
@@ -426,6 +433,7 @@ func WorkRun() {
 		}
 
 		for i := 0; i < cfg.Workers; i++ {
+			time.Sleep(time.Duration(cfg.Interval/int64(cfg.Workers)) * time.Millisecond)
 			go ReentryWorker(wkQueues[i], i)
 		}
 	}

@@ -23,31 +23,35 @@ import (
 )
 
 type FromConfig struct {
-	BeginTime    string `json:"begin_time"`
-	EndTime      string `json:"end_time"`
+	BeginTime    string `json:"UTC_begin_time"`
+	EndTime      string `json:"UTC_end_time"`
 	ConnTimeout  int    `json:"connect_timeout"`
 	RequTimeout  int    `json:"request_timeout"`
 	PlusApi      string `json:"plus_api"`
 	PlusApiToken string `json:"plus_api_token"`
 }
 
-type ToConfig struct {
-	ConnTimeout int    `json:"connect_timeout"`
-	RequTimeout int    `json:"request_timeout"`
-	PushApi     string `json:"push_api"`
+type TransferConfig struct {
+	Enabled  bool     `json:"enabled"`
+	Addrs    []string `json:"addrs"`
+	Interval int      `json:"interval"`
+	Timeout  int      `json:"timeout"`
 }
 
 type WhiteListConfig struct {
-	Enabled       bool     `json:"enabled"`
-	MetricsPrefix []string `json:"metric_prefix"`
+	Enabled        bool     `json:"enabled"`
+	MetricsPrefix  []string `json:"metric_prefix"`
+	EndpointPrefix []string `json:"endpoint_prefix"`
 }
 
 type GlobalConfig struct {
 	Debug     bool             `json:"debug"`
 	Workers   int              `json:"workers"`
 	Batch     int              `json:"batch"`
+	Interval  int64            `json:"batch_interval_ms"`
+	MaxFiles  uint64           `json:"max_filefds"`
 	From      *FromConfig      `json:"from"`
-	To        *ToConfig        `json:"to"`
+	Transfer  *TransferConfig  `json:"transfer"`
 	WhiteList *WhiteListConfig `json:"whitelist"`
 }
 

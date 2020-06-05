@@ -17,11 +17,32 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log"
 	"os"
+	"syscall"
 
 	"github.com/lxlee1102/falcon-data-reentry/funcs"
 	"github.com/lxlee1102/falcon-data-reentry/g"
 )
+
+func SetMaxFilefds(n uint64) (err error) {
+	var rLimit syscall.Rlimit
+	err = syscall.Getrlimit(syscall.RLIMIT_NOFILE, &rLimit)
+	if err != nil {
+		log.Println("Error Getting Rlimit ", err)
+		return
+	}
+	rLimit.Max = n
+	rLimit.Cur = n
+	err = syscall.Setrlimit(syscall.RLIMIT_NOFILE, &rLimit)
+	if err != nil {
+		log.Println("Error Setting Rlimit ", err)
+		return
+	}
+
+	log.Println("Setrlimit:", n)
+	return
+}
 
 func main() {
 
@@ -45,6 +66,11 @@ func main() {
 		g.InitLog("debug")
 	} else {
 		g.InitLog("info")
+	}
+
+	err := SetMaxFilefds(g.Config().MaxFiles)
+	if err != nil {
+		return
 	}
 
 	go funcs.WorkRun()
