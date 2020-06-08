@@ -447,5 +447,5 @@ func WorkRun() {
 
 	wg.Wait()
 	rrend := time.Now().Unix()
-	log.Infof("finish reentry-data, total-time:%vs", (rrend - rrbegin))
+	log.Infof("Finish reentry-data, total-time:%vs endpoints:%v", (rrend - rrbegin), epNum)
 }
