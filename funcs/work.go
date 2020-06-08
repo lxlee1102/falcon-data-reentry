@@ -21,6 +21,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/lxlee1102/falcon-data-reentry/g"
@@ -373,7 +374,9 @@ func ProcessEndpoint(ep *EndpointInfo) (total, succ, fail int, err error) {
 	return total, succ, fail, nil
 }
 
-func ReentryWorker(L []*EndpointInfo, wkId int) {
+func ReentryWorker(L []*EndpointInfo, wkId int, wg *sync.WaitGroup) {
+	defer wg.Done()
+
 	b, _ := json.Marshal(L)
 	log.Infof("[worker:%v] running, assign endpoints: %v, %v", wkId, len(L), string(b))
 
@@ -408,8 +411,9 @@ func WorkRun() {
 		log.Infoln("WhiteList is enabled.")
 	}
 
-	log.Infof("reentry data time(UTC): %s - %s", cfg.From.BeginTime, cfg.From.EndTime)
+	log.Infof("Start reentry-data, time(UTC): %s - %s", cfg.From.BeginTime, cfg.From.EndTime)
 
+	rrbegin := time.Now().Unix()
 	err, eps := getEndpoints()
 	if err != nil {
 		log.Errorf("load endpoints error, %v", err)
@@ -419,8 +423,10 @@ func WorkRun() {
 	b, _ := json.Marshal(eps)
 	log.Infof("load endpoints: %v, %v", epNum, string(b))
 
+	var wg sync.WaitGroup
 	if cfg.Workers <= 1 {
-		go ReentryWorker(eps, 0)
+		wg.Add(1)
+		go ReentryWorker(eps, 0, &wg)
 	} else {
 		wkQueues := make([][]*EndpointInfo, cfg.Workers)
 		for i := 0; i < cfg.Workers; i++ {
@@ -433,8 +439,13 @@ func WorkRun() {
 		}
 
 		for i := 0; i < cfg.Workers; i++ {
+			wg.Add(1)
 			time.Sleep(time.Duration(cfg.Interval/int64(cfg.Workers)) * time.Millisecond)
-			go ReentryWorker(wkQueues[i], i)
+			go ReentryWorker(wkQueues[i], i, &wg)
 		}
 	}
+
+	wg.Wait()
+	rrend := time.Now().Unix()
+	log.Infof("finish reentry-data, total-time:%vs", (rrend - rrbegin))
 }

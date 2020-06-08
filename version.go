@@ -16,7 +16,7 @@
 package main
 
 var (
-	Version    = "0.0.1"
+	Version    = "0.0.2"
 	GitCommit  = "<UNDEFINED>"
 	BinaryName = "falcon-data-reentry"
 )
