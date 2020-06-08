@@ -381,12 +381,10 @@ func ReentryWorker(L []*EndpointInfo, wkId int, wg *sync.WaitGroup) {
 	log.Infof("[worker:%v] running, assign endpoints: %v, %v", wkId, len(L), string(b))
 
 	for i, v := range L {
-		log.Debugf("[worker:%v] process endpoint[%v]: %s id: %v",
-			wkId, i, v.Endpoint, v.Id)
 
 		total, succ, fail, _ := ProcessEndpoint(v)
 
-		log.Infof("[worker:%v] process endpoint[%v]: %s id: %v total: %v succ: %v fail: %v ",
+		log.Infof("[worker:%v] process-endpoint[%v]: %s/%v total:%v succ:%v fail:%v ",
 			wkId, i, v.Endpoint, v.Id, total, succ, fail)
 	}
 
