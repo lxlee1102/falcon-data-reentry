@@ -322,7 +322,7 @@ func ProcessReentryCounterData(ep *EndpointInfo, counter *CounterResp) (err erro
 		}
 	}
 
-	log.Debugf("process-counter: [%s] %s , points total: %v succ: %v fail: %v invalid: %v latency: %v",
+	log.Debugf("process-counter: [%s] %s, points total:%v succ:%v fail:%v invalid:%v latency:%v",
 		ep.Endpoint, counter.Counter, total, succ, fail, invalid, latency)
 
 	return
@@ -339,7 +339,7 @@ func ProcessEndpoint(ep *EndpointInfo) (total, succ, fail int, err error) {
 	for p := 1; pagenum == COUTER_PAGE_MAX; p++ {
 		counters, errs := getEndpointCounters(ep, p)
 		if errs != nil {
-			log.Errorf("load-counters [%s] id: %v err:%v",
+			log.Errorf("load-counters: [%s] id:%v err:%v",
 				ep.Endpoint, ep.Id, errs)
 			return total, succ, fail, errs
 		}
@@ -357,7 +357,7 @@ func ProcessEndpoint(ep *EndpointInfo) (total, succ, fail int, err error) {
 		}
 
 		total = total + len(counters)
-		log.Debugf("load-counters [%s] page: %d number: %d ",
+		log.Debugf("load-counters: [%s] page[%d] number:%d",
 			ep.Endpoint, p, total)
 
 		// reenter each counters data
